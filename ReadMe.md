@@ -1,4 +1,4 @@
-#Three node MarkLogic cluster on a single VM
+# Three node MarkLogic cluster on a single VM
 
 This project is used to setup a 3 node marklogic cluster with a load balancer 
 

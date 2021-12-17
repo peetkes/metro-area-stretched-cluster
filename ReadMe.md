@@ -1,4 +1,4 @@
-# Three node MarkLogic cluster with haproxy LB on a single VM
+# MarkLogic Metra Area Stretched Cluster with haproxy LB on a single VM
 
 This project is used to setup a 3 node marklogic cluster with a load balancer 
 It is based on the marklogic-3n-centos.yaml mentioned on https://hub.docker.com/_/marklogic in teh setup instructions.

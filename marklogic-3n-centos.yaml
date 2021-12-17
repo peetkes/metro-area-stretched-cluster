@@ -1,4 +1,4 @@
-version: '3.8'
+version: '3.6'
 
 services:
   bootstrap:
@@ -120,5 +120,4 @@ secrets:
     file: ./mldb_admin_username.txt
 
 networks:
-  external_net:
-    driver: bridge
+  external_net: {}

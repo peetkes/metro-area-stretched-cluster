@@ -1,10 +1,10 @@
 # Three node MarkLogic cluster with haproxy LB on a single VM
 
 This project is used to setup a 3 node marklogic cluster with a load balancer 
+It is based on the marklogic-3n-centos.yaml mentioned on https://hub.docker.com/_/marklogic in teh setup instructions.
 
 It uses the marklogic-3n-centos.yaml, mldb_admin_username.txt, mldb_admin_password.txt and haproxy-2.4/haproxy.cfg files.
-There are 2 shell scripts to start and stop teh container.
-In the docs folder there is an asciidoc file describing the steps to take after the container with the cluster is ready.
+There are 2 shell scripts to start and stop the containers.
 
 **Docker compose file sample to setup a three node MarkLogic cluster with haproxy LB**
 ```

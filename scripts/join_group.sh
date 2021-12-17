@@ -38,4 +38,4 @@ CURL="curl -s -S"
 # Add authentication related options, required once security is initialized
 AUTH_CURL="${CURL} --${AUTH_MODE} --user ${USER}:${PASS}"
 
-$AUTH_CURL -X PUT -H "Content-type: application/json" -d { "zone":"'$GROUPNAME'" } http://$HOST:8002/manage/v2/hosts/$VOTER_HOST/properties
+$AUTH_CURL -X PUT -H "Content-type: application/json" -d '{"group": "'$GROUPNAME'"}' http://$HOST:8002/manage/v2/hosts/$VOTERHOST/properties

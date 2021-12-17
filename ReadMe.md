@@ -175,6 +175,24 @@ As with the single node example, each node of the cluster can be accessed with l
 
 The node2 and node3 use MARKLOGIC_JOIN_CLUSTER property to join the cluster once they are running.
 
+### Splitting the voter node to a separate group
+
+Run the following commands to move the voter node to a separate voter group
+
+```shell
+./scripts/create_group.sh -p admin localhost Voter
+
+./scripts/join_group.sh -p admin localhost mlcup_node2.local Voter
+```
+
+### Replicating the system database forests
+
+Run the following cmmand to create ana attach replica forests to the system database forests.
+
+```shell
+./scripts/create-system_db_replicas.sh -p admin localhost mlcup_node1.local App-Services Triggers Modules Schemas Security Meters
+```
+
 ### Stopping the containers in the project
 
 The following command will stop the nodes 

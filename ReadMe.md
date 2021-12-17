@@ -1,12 +1,12 @@
-# Three node MarkLogic cluster on a single VM
+# Three node MarkLogic cluster with haproxy LB on a single VM
 
 This project is used to setup a 3 node marklogic cluster with a load balancer 
 
 It uses the marklogic-3n-centos.yaml, mldb_admin_username.txt, mldb_admin_password.txt and haproxy-2.4/haproxy.cfg files.
 There are 2 shell scripts to start and stop teh container.
-In teh docs folder there is an asciidoc file describing the steps to take after the container with the cluster is ready.
+In the docs folder there is an asciidoc file describing the steps to take after the container with the cluster is ready.
 
-**Docker compose file sample to setup a three node MarkLogic cluster**
+**Docker compose file sample to setup a three node MarkLogic cluster with haproxy LB**
 ```
 version: '3.8'
 
@@ -132,6 +132,8 @@ networks:
     driver: bridge
 ```
 
+Administrative username and password can be provided through below two files:
+
 **This file will contain the MARKLOGIC_ADMIN_USERNAME value**
 
 mldb_admin_username.txt
@@ -151,11 +153,17 @@ DOCKERPROJECT=metrotest
 mlVersionTag=10.0-8.1-centos-1.0.0-ea2
 ```
 
-The DOCKERPROJECT parameter will give your cntainers a recognisable project name in docker. The mlVersionTag refers to the tag of the MarkLogic docker image on dockerhub. +
+The DOCKERPROJECT parameter will group your containers in a recognisable project name in docker. 
+
+The mlVersionTag refers to the tag of the MarkLogic docker image on dockerhub. +
+
 To be able to pull images from dockerhub you need to login to dockerhub once from the commandline
 ```shell
 docker login  -u user_name
 ```
+
+### Starting the containers in the project
+
 Once you are logged in you can start your docker container with the provides start.sh shell script
 
 ```shell
@@ -166,4 +174,23 @@ After the container is initialized, you can access the QConsole on http://localh
 As with the single node example, each node of the cluster can be accessed with localhost or host machine IP. QConsole and Admin UI ports for each container are different, as defined in the Docker compose file: http://localhost:7101, http://localhost:7201, http://localhost:7301, etc.
 
 The node2 and node3 use MARKLOGIC_JOIN_CLUSTER property to join the cluster once they are running.
+
+### Stopping the containers in the project
+
+The following command will stop the nodes 
+```shell
+./stop.sh
+```
+
+### Removing the project
+
+The following command will stop the containers and removes all containers, networks, images and volumes created by the project.
+```shell
+./stop.sh
+```
+
+**Attention**
+
+The MarkLogic data files will be persisted in the subfolder ./data/[ml-node]
+So if you want to completely remove the project plus the data files you need to remove the subfolders inside the data folder!
 

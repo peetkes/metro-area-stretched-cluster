@@ -1,0 +1,620 @@
+= MarkLogic Metro Area Stretched Cluster
+Peter Kester <peter.kester@koop.overheid.nl>
+3.0, July 29, 2022: AsciiDoc article template
+:toc:
+:icons: font
+:url-quickref: https://docs.asciidoctor.org/asciidoc/latest/syntax-quick-reference/
+:lang: nl
+include::locale/attributes.adoc[]
+
+<<<
+
+== Introductie
+Om applicaties 24/7 beschikbaar te maken voor gebruikers, wordt de applicatie op een omgeving geplaatst die voldoet aan High Availability/Disaster Recovery principes.
+High Availability voor een database betekent dat alle data dubbel beschikbaar is. Dus een single node MarkLogic database is NIET High Avaliable. Een double node MarkLogic database kan tot een split brain situatie leiden (beide nodes denken dat ze master zijn).
+Dus de meest voor de hand liggende setup voor High Availability is minstens een 3 node MarkLogic cluster.
+
+Om deze setup geschikt te maken voor Disaster Recovery moeten de 3 nodes dubbel uitgevoerd worden en verdeeld over ten minste 2 datacenters.
+In DC1 staat dan bv het master cluster dat gerepliceerd wordt naar het replica cluster in DC2.
+
+In deze situatie zijn er dus licenties nodig voor 6 MarkLogic nodes. +
+Vanwege kostenbesparing kan er gekozen worden voor een Metro Area Stretched Cluster configuratie.
+In een Metro Area Stretched Cluster configuratie zijn er 2 nodes van het cluster die data bevatten en 1 voter node voor het zorgen van quorum zodat er geen split brain situatie ontstaat.
+Hiervoor wordt in beide datacenters een MarkLogic node geplaatst en de voter node kan dan (op korte afstand ivm latency) in bijvoorbeeld de cloud geplaatst worden. Belangrijke voorwaarde voor deze configuratie is dat de voter node GEEN data zal bevatten.
+
+.Metro Area Stretched Cluster
+[MetroAreaStretchedCluster]
+[plantuml, MetroAreaStretchedCluster,svg]
+----
+include::MetroAreaStretchedCluster.puml[]
+----
+
+== Setup cluster
+
+De documentatie in https://docs.marklogic.com/guide/admin-api/cluster#id_81719 beschrijft hoe dit gescript kan worden.
+Er zijn 3 marklogic nodes beschikbaar:
+
+- http://ML1 (bootstrap host, data node)
+- http://ML2 (extra data node)
+- http://ML-VOTER
+
+Het opzetten van een cluster geschied in 2 fasen:
+
+- initialiseer de bootstrap host volledig.
+
+.Initialiseer bootstrap host
+----
+POST http://ML1:8002/admin/v1/init
+De body van deze POST opdracht kan de licentie sleutel bevatten.
+dit zorgt voor een herstart van de bootstrap host
+POST http://ML1:8002/admin/v1/instance-admin
+De body bevat oa de usernaam en wachtwoord van de admin gebruiker voor het cluster
+dit zorgt wederom voor een herstart van de host
+----
+
+- Initialiseer de overige hosts
+
+.Initialiseer de 2de data node
+----
+POST http://ML2:8002/admin/v1/init
+dit zorgt voor een herstart van de bootstrap host
+GET http://ML2:8002/admin/v1/server-config
+dit retourneert de server configuratie van ML2 in XML of JSON
+POST http://ML1:8002/admin/v1/cluster-config
+de body bevat de server config van ML2, het antwoord bevat de cluster configuratie in XML of JSON
+POST http://ML2:8002/admin/v1/cluster-config
+de body bevat de cluster config van ML1, dit zorgt voor een herstart van ML2
+----
+hierna is de tweede node toegevoegd aan het cluster
+
+.Initialiseer de voter node
+----
+POST http://ML-VOTER:8002/admin/v1/init
+dit zorgt voor een herstart van de bootstrap host
+GET http://ML-VOTER:8002/admin/v1/server-config
+dit retourneert de server configuratie van ML-VOTER in XML of JSON
+POST http://ML1:8002/admin/v1/cluster-config
+de body bevat de server config van ML-VOTER, het antwoord bevat de cluster configuratie in XML of JSON
+POST http://ML-VOTER:8002/admin/v1/cluster-config
+de body bevat de cluster config van ML1, dit zorgt voor een herstart van ML-VOTER
+----
+Het cluster is nu compleet
+
+Nu moet de voter node nog in een eigen group geplaatst worden omdat deze geen applicatie servers hoeft te bevatten.
+
+Dit kan door het aanmaken van een group genaamd 'Voters'.
+
+.Verplaatsen ML_VOTER naar group 'Voters'
+----
+POST any-host:8002/manage/v2/groups
+de body bevat de group definitei in XML of JSON
+PUT any-host:8002/manage/v2/hosts/ML_VOTER/properties
+de body bevat de group configuratie voor de genoemde host in XML of JSON
+----
+
+Nu is het Metro Area Stretched Cluster gereed voor actie. Er kunnen nu nog tweaks doorgevoerd worden in resources voor de verschillende groepen afhankelijk van het profiel van de applicatie.
+De voter node bevat geen data dus deze hoeft geen geheugen te reserveren voor de compressed tree cache. Verder kan deze node lichter gedimensioneerd worden dan de data nodes omdat hier geen andere activiteit dan het behouden van een quorum op  plaatst vinden.
+Het is ook zaak dat deze voter node NIET gebruikt wordt voor het uitvoeren van queries of het laden van data omdat dit tot onnodig verkeer over het netwerk zal leiden.
+
+== Scripting
+
+=== Initialiseren bootstrap host
+Voor het initialiseren van de bootstrap host is een script beschikbaar:
+----
+script [options] bootstrap_host
+----
+Dit script gebruikt de volgende commandline opties
+.Table Lijst van opties
+|===
+|Column Optie |Column Omschrijving
+
+|`-a` _auth_mode_
+|De HTTP authenticatie methode. Toegestane waarden: `basic`, `digest`, `anyauth`. Default waarde : `anyauth`.
+
+|`-p` _password_
+|Wachtwoord voor de admin gebruiker van het cluster. Default `password`.
+
+|`-r` _sec_realm_
+|Het authenticatie rijk voor de host. Zie https://docs.marklogic.com/guide/admin/security#id_26453 voor uitleg. Default `public`
+
+|`-u` _username_
+|Gebruikersnaam voor de admin gebruiker van het cluster. Default `admin`.
+
+|`-w` _wallet_password_
+|Wachtwoord voor de key wallet. Default `wpass`.
+|===
+
+.Script voor het initialiseren van de bootstrap host
+----
+#!/bin/bash
+################################################################
+# Use this script to initialize the first (or only) host in
+# a MarkLogic Server cluster. Use the options to control admin
+# username and password, authentication mode, and the security
+# realm. If no hostname is given, localhost is assumed. Only
+# minimal error checking is performed, so this script is not
+# suitable for production use.
+#
+# Usage:  this_command [options] hostname
+#
+################################################################
+
+BOOTSTRAP_HOST="localhost"
+USER="admin"
+PASS="password"
+WPASS="wpass"
+AUTH_MODE="anyauth"
+SEC_REALM="public"
+N_RETRY=5
+RETRY_INTERVAL=10
+
+#######################################################
+# restart_check(hostname, baseline_timestamp, caller_lineno)
+#
+# Use the timestamp service to detect a server restart, given a
+# a baseline timestamp. Use N_RETRY and RETRY_INTERVAL to tune
+# the test length. Include authentication in the curl command
+# so the function works whether or not security is initialized.
+#   $1 :  The hostname to test against
+#   $2 :  The baseline timestamp
+#   $3 :  Invokers LINENO, for improved error reporting
+# Returns 0 if restart is detected, exits with an error if not.
+#
+function restart_check {
+LAST_START=`$AUTH_CURL "http://$1:8001/admin/v1/timestamp"`
+for i in `seq 1 ${N_RETRY}`; do
+if [ "$2" == "$LAST_START" ] || [ "$LAST_START" == "" ]; then
+sleep ${RETRY_INTERVAL}
+LAST_START=`$AUTH_CURL "http://$1:8001/admin/v1/timestamp"`
+else
+return 0
+fi
+done
+echo "ERROR: Line $3: Failed to restart $1"
+exit 1
+}
+
+
+#######################################################
+# Parse the command line
+
+OPTIND=1
+while getopts ":a:p:r:u:" opt; do
+case "$opt" in
+a) AUTH_MODE=$OPTARG ;;
+p) PASS=$OPTARG ;;
+w) WPASS=$OPTARG ;;
+r) SEC_REALM=$OPTARG ;;
+u) USER=$OPTARG ;;
+\?) echo "Unrecognized option: -$OPTARG" >&2; exit 1 ;;
+esac
+done
+shift $((OPTIND-1))
+
+if [ $# -ge 1 ]; then
+BOOTSTRAP_HOST=$1
+shift
+fi
+
+# Suppress progress meter, but still show errors
+CURL="curl -s -S"
+# Add authentication related options, required once security is initialized
+AUTH_CURL="${CURL} --${AUTH_MODE} --user ${USER}:${PASS}" --wpass ${WPASS}
+
+
+#######################################################
+# Bring up the first (or only) host in the cluster. The following
+# requests are sent to the target host:
+#   (1) POST /admin/v1/init
+#   (2) POST /admin/v1/instance-admin?admin-user=W&admin-password=X&wallet-password=Y&realm=Z
+# GET /admin/v1/timestamp is used to confirm restarts.
+
+# (1) Initialize the server
+echo "Initializing $BOOTSTRAP_HOST..."
+$CURL -X POST -d "" http://${BOOTSTRAP_HOST}:8001/admin/v1/init
+sleep 10
+
+# (2) Initialize security and, optionally, licensing. Capture the last
+#     restart timestamp and use it to check for successful restart.
+TIMESTAMP=`$CURL -X POST \
+-H "Content-type: application/x-www-form-urlencoded" \
+--data "admin-username=${USER}" --data "admin-password=${PASS}" \
+--wallet-password "wpass=${WPASS}" --data "realm=${SEC_REALM}" \
+http://${BOOTSTRAP_HOST}:8001/admin/v1/instance-admin \
+| grep "last-startup" \
+| sed 's%^.*<last-startup.*>\(.*\)</last-startup>.*$%\1%'`
+if [ "$TIMESTAMP" == "" ]; then
+echo "ERROR: Failed to get instance-admin timestamp." >&2
+exit 1
+fi
+
+# Test for successful restart
+restart_check $BOOTSTRAP_HOST $TIMESTAMP $LINENO
+
+echo "Initialization complete for $BOOTSTRAP_HOST..."
+exit 0
+----
+
+=== Initialiseren extra hosts
+
+Voor het initialiseren van de extra nodes voor het cluster is een script beschikbaar:
+Er dienen in ieder geval minimaal 2 hosts opgegeven teworden op de commandline.
+----
+script [options] bootstrap_host joining_host [joining_host ...]
+----
+Dit script gebruikt de volgende commandline opties
+.Table Lijst van opties
+|===
+|Column Optie |Column Omschrijving
+
+|`-a` _auth_mode_
+|De HTTP authenticatie methode. Toegestane waarden: `basic`, `digest`, `anyauth`. Default waarde : `anyauth`
+
+|`-p` _password_
+|Wachtwoord voor de admin gebruiker van het cluster. Default `password`
+
+|`-u` _username_
+|Gebruikersnaam voor de admin gebruiker van het cluster. Default `admin`
+|===
+
+.Script voor het initialiseren van de joining host(s)
+----
+#!/bin/bash
+################################################################
+# Use this script to initialize and add one or more hosts to a
+# MarkLogic Server cluster. The first (bootstrap) host for the
+# cluster should already be fully initialized.
+#
+# Use the options to control admin username and password,
+# authentication mode, and the security realm. At least two hostnames
+# must be given: A host already in the cluster, and at least one host
+# to be added to the cluster. Only minimal error checking is performed,
+# so this script is not suitable for production use.
+#
+# Usage:  this_command [options] cluster-host joining-host(s)
+#
+################################################################
+
+USER="admin"
+PASS="password"
+AUTH_MODE="anyauth"
+N_RETRY=5
+RETRY_INTERVAL=10
+
+#######################################################
+# restart_check(hostname, baseline_timestamp, caller_lineno)
+#
+# Use the timestamp service to detect a server restart, given a
+# a baseline timestamp. Use N_RETRY and RETRY_INTERVAL to tune
+# the test length. Include authentication in the curl command
+# so the function works whether or not security is initialized.
+#   $1 :  The hostname to test against
+#   $2 :  The baseline timestamp
+#   $3 :  Invokers LINENO, for improved error reporting
+# Returns 0 if restart is detected, exits with an error if not.
+#
+function restart_check {
+  LAST_START=`$AUTH_CURL "http://$1:8001/admin/v1/timestamp"`
+  for i in `seq 1 ${N_RETRY}`; do
+    if [ "$2" == "$LAST_START" ] || [ "$LAST_START" == "" ]; then
+      sleep ${RETRY_INTERVAL}
+      LAST_START=`$AUTH_CURL "http://$1:8001/admin/v1/timestamp"`
+    else
+      return 0
+    fi
+  done
+  echo "ERROR: Line $3: Failed to restart $1"
+  exit 1
+}
+
+
+#######################################################
+# Parse the command line
+
+OPTIND=1
+while getopts ":a:p:u:" opt; do
+  case "$opt" in
+    a) AUTH_MODE=$OPTARG ;;
+    p) PASS=$OPTARG ;;
+    u) USER=$OPTARG ;;
+    \?) echo "Unrecognized option: -$OPTARG" >&2; exit 1 ;;
+  esac
+done
+shift $((OPTIND-1))
+
+if [ $# -ge 2 ]; then
+  BOOTSTRAP_HOST=$1
+  shift
+else
+  echo "ERROR: At least two hostnames are required." >&2
+  exit 1
+fi
+ADDITIONAL_HOSTS=$@
+
+# Curl command for all requests. Suppress progress meter (-s),
+# but still show errors (-S)
+CURL="curl -s -S"
+# Curl command when authentication is required, after security
+# is initialized.
+AUTH_CURL="${CURL} --${AUTH_MODE} --user ${USER}:${PASS}"
+
+
+#######################################################
+# Add one or more hosts to a cluster. For each host joining
+# the cluster:
+#   (1) POST /admin/v1/init (joining host)
+#   (2) GET /admin/v1/server-config (joining host)
+#   (3) POST /admin/v1/cluster-config (bootstrap host)
+#   (4) POST /admin/v1/cluster-config (joining host)
+# GET /admin/v1/timestamp is used to confirm restarts.
+
+for JOINING_HOST in $ADDITIONAL_HOSTS; do
+  echo "Adding host to cluster: $JOINING_HOST..."
+
+  # (1) Initialize MarkLogic Server on the joining host
+  TIMESTAMP=`$CURL -X POST -d "" \
+     http://${JOINING_HOST}:8001/admin/v1/init \
+     | grep "last-startup" \
+     | sed 's%^.*<last-startup.*>\(.*\)</last-startup>.*$%\1%'`
+  if [ "$TIMESTAMP" == "" ]; then
+    echo "ERROR: Failed to initialize $JOINING_HOST" >&2
+    exit 1
+  fi
+  restart_check $JOINING_HOST $TIMESTAMP $LINENO
+
+  # (2) Retrieve the joining host's configuration
+  JOINER_CONFIG=`$CURL -X GET -H "Accept: application/xml" \
+        http://${JOINING_HOST}:8001/admin/v1/server-config`
+  echo $JOINER_CONFIG | grep -q "^<host"
+  if [ "$?" -ne 0 ]; then
+    echo "ERROR: Failed to fetch server config for $JOINING_HOST"
+    exit 1
+  fi
+
+  # (3) Send the joining host's config to the bootstrap host, receive
+  #     the cluster config data needed to complete the join. Save the
+  #     response data to cluster-config.zip.
+  $AUTH_CURL -X POST -o cluster-config.zip -d "group=Default" \
+        --data-urlencode "server-config=${JOINER_CONFIG}" \
+        -H "Content-type: application/x-www-form-urlencoded" \
+        http://${BOOTSTRAP_HOST}:8001/admin/v1/cluster-config
+  if [ "$?" -ne 0 ]; then
+    echo "ERROR: Failed to fetch cluster config from $BOOTSTRAP_HOST"
+    exit 1
+  fi
+  if [ `file cluster-config.zip | grep -cvi "zip archive data"` -eq 1 ]; then
+    echo "ERROR: Failed to fetch cluster config from $BOOTSTRAP_HOST"
+    exit 1
+  fi
+
+  # (4) Send the cluster config data to the joining host, completing
+  #     the join sequence.
+  TIMESTAMP=`$CURL -X POST -H "Content-type: application/zip" \
+      --data-binary @./cluster-config.zip \
+      http://${JOINING_HOST}:8001/admin/v1/cluster-config \
+      | grep "last-startup" \
+      | sed 's%^.*<last-startup.*>\(.*\)</last-startup>.*$%\1%'`
+  restart_check $JOINING_HOST $TIMESTAMP $LINENO
+  rm ./cluster-config.zip
+
+  echo "...$JOINING_HOST successfully added to the cluster."
+done
+----
+
+=== Aanmaken 'Voters' group
+
+----
+script [options] any_host groupname
+----
+Dit script gebruikt de volgende commandline opties
+.Table Lijst van opties
+|===
+|Column Optie |Column Omschrijving
+
+|`-a` _auth_mode_
+|De HTTP authenticatie methode. Toegestane waarden: `basic`, `digest`, `anyauth`. Default waarde : `anyauth`
+
+|`-p` _password_
+|Wachtwoord voor de admin gebruiker van het cluster. Default `password`
+
+|`-u` _username_
+|Gebruikersnaam voor de admin gebruiker van het cluster. Default `admin`
+|===
+
+.Script voor aanmaken 'Voters' group
+----
+#!/bin/bash
+################################################################
+#
+# Usage:  this_command [options] anyhost groupname
+#
+################################################################
+
+USER="admin"
+PASS="password"
+AUTH_MODE="anyauth"
+
+#######################################################
+# Parse the command line
+
+OPTIND=1
+while getopts ":a:p:u:" opt; do
+  case "$opt" in
+    a) AUTH_MODE=$OPTARG ;;
+    p) PASS=$OPTARG ;;
+    u) USER=$OPTARG ;;
+    \?) echo "Unrecognized option: -$OPTARG" >&2; exit 1 ;;
+  esac
+done
+shift $((OPTIND-1))
+
+if [ $# -ge 2 ]; then
+  HOST=$1
+  shift
+else
+  echo "ERROR: hostname and groupname are required." >&2
+  exit 1
+fi
+GROUPNAME=$1
+
+# Suppress progress meter, but still show errors
+CURL="curl -s -S"
+# Add authentication related options, required once security is initialized
+AUTH_CURL="${CURL} --${AUTH_MODE} --user ${USER}:${PASS}"
+
+$AUTH_CURL -X POST -H "Content-type: application/json" -d '{"group-name":"'$GROUPNAME'"}' http://$HOST:8002/manage/v2/groups
+----
+
+=== Verplaatsen voter node naar 'Voters' group
+
+----
+script [options] voter_host groupname
+----
+Dit script gebruikt de volgende commandline opties
+.Table Lijst van opties
+|===
+|Column Optie |Column Omschrijving
+
+|`-a` _auth_mode_
+|De HTTP authenticatie methode. Toegestane waarden: `basic`, `digest`, `anyauth`. Default waarde : `anyauth`
+
+|`-p` _password_
+|Wachtwoord voor de admin gebruiker van het cluster. Default `password`
+
+|`-u` _username_
+|Gebruikersnaam voor de admin gebruiker van het cluster. Default `admin`
+|===
+
+.Script voor verplaatsen voter node naar 'Voters' group
+----
+#!/bin/bash
+################################################################
+#
+# Usage:  this_command [options] anyhost voterhostname groupname
+#
+################################################################
+
+USER="admin"
+PASS="password"
+AUTH_MODE="anyauth"
+
+#######################################################
+# Parse the command line
+
+OPTIND=1
+while getopts ":a:p:u:" opt; do
+  case "$opt" in
+    a) AUTH_MODE=$OPTARG ;;
+    p) PASS=$OPTARG ;;
+    u) USER=$OPTARG ;;
+    \?) echo "Unrecognized option: -$OPTARG" >&2; exit 1 ;;
+  esac
+done
+shift $((OPTIND-1))
+
+if [ $# -ge 3 ]; then
+  HOST=$1
+  shift
+else
+  echo "ERROR: hostname, voterhostname and groupname are required." >&2
+  exit 1
+fi
+VOTERHOST=$1
+GROUPNAME=$2
+
+# Suppress progress meter, but still show errors
+CURL="curl -s -S"
+# Add authentication related options, required once security is initialized
+AUTH_CURL="${CURL} --${AUTH_MODE} --user ${USER}:${PASS}"
+
+$AUTH_CURL -X PUT -i -H "Content-type: application/json" -d { "zone":"'$GROUPNAME'" } http://$HOST:8002/manage/v2/hosts/$VOTER_HOST/properties
+----
+
+=== Script voor het aanmaken en koppelen van replica forests voor de systeemdatabases
+
+[IMPORTANT]
+====
+Bij het opzetten van een multi node cluster zullen alle forests van de systeem databases op de bootstrap node geplaatst zijn. Deze moeten gerepliceerd worden omdat als de bootstrap node niet beschikbaar is, het gehele cluster dan niet beschikbaar is.
+====
+
+Voor de volgende systeem databases moeten nog replica forests aangemaakt en gekoppels worden.
+
+* Security
+* App-Services
+* Triggers
+* Schemas
+
+Optioneel zouden de overige ook gerepliceerd kunnen worden afhankelijk van gebruik:
+
+* Meters
+* Modules
+
+----
+script [options] anyhost replicahost forest [forest ...]
+----
+Dit script gebruikt de volgende commandline opties
+.Table Lijst van opties
+|===
+|Column Optie |Column Omschrijving
+
+|`-a` _auth_mode_
+|De HTTP authenticatie methode. Toegestane waarden: `basic`, `digest`, `anyauth`. Default waarde : `anyauth`
+
+|`-p` _password_
+|Wachtwoord voor de admin gebruiker van het cluster. Default `password`
+
+|`-u` _username_
+|Gebruikersnaam voor de admin gebruiker van het cluster. Default `admin`
+|===
+
+.Script voor aanmaken en koppelen van een replica forest
+----
+#!/bin/bash
+################################################################
+#
+# Usage:  this_command [options] anyhost replicahost forestname [forestname ...]
+#
+################################################################
+
+USER="admin"
+PASS="password"
+AUTH_MODE="anyauth"
+
+#######################################################
+# Parse the command line
+
+OPTIND=1
+while getopts ":a:p:u:" opt; do
+  case "$opt" in
+    a) AUTH_MODE=$OPTARG ;;
+    p) PASS=$OPTARG ;;
+    u) USER=$OPTARG ;;
+    \?) echo "Unrecognized option: -$OPTARG" >&2; exit 1 ;;
+  esac
+done
+shift $((OPTIND-1))
+
+if [ $# -ge 3 ]; then
+  HOST=$1
+  shift
+else
+  echo "ERROR: hostname, replicahost and forestname are required." >&2
+  exit 1
+fi
+REPLICAHOST=$1
+shift
+FORESTS=$@
+
+
+# Suppress progress meter, but still show errors
+CURL="curl -s -S"
+# Add authentication related options, required once security is initialized
+AUTH_CURL="${CURL} --${AUTH_MODE} --user ${USER}:${PASS}"
+for FOREST in $FORESTS;
+do
+
+  $AUTH_CURL -X POST -i -H "Content-type: application/json" -d '{ "forest-name":"'$FOREST'-R", "host": "'$REPLICAHOST'" }' http://$HOST:8002/manage/v2/forests
+  # couple replica to master
+  $AUTH_CURL -X PUT -i -H "Content-type: application/json" -d '{ "forest-replica":[{"replica-name": "'$FOREST'-R", "host": "'$REPLICAHOST'"}] }' http://$HOST:8002/manage/v2/forests/$FOREST/properties
+done
+----

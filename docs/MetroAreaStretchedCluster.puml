@@ -1,0 +1,30 @@
+@startuml
+'https://plantuml.com/component-diagram
+frame MetroArea {
+  frame "data Center 2"{
+    node node2 [
+      MarkLogic
+      ---
+      DataNode1
+    ]
+  }
+  frame "Data Center 1" {
+    node node1 [
+      MarkLogic
+      ---
+      DataNode2
+    ]
+  }
+}
+cloud "Azure"{
+  node voter [
+    MarkLogic
+    ---
+    VoterNode
+  ]
+}
+
+node1 -right- node2
+node2 -- voter
+node1 -- voter
+@enduml

@@ -1,0 +1,66 @@
+buildscript {
+  repositories {
+    jcenter()
+  }
+}
+
+plugins {
+  id "org.asciidoctor.jvm.convert" version "3.2.0"
+  id 'org.asciidoctor.jvm.pdf' version '3.2.0'
+  id 'org.asciidoctor.jvm.gems' version '3.2.0'
+}
+
+repositories {
+  jcenter()
+  ruby.gems()
+}
+
+dependencies {
+  asciidoctorGems 'rubygems:rouge:3.15.0'
+  asciidoctorGems 'rubygems:asciidoctor-diagram:1.2.1'
+}
+
+
+asciidoctorj {
+  version = '2.0.0'
+  modules {
+    diagram.use()
+    diagram.version '1.5.16'
+  }
+}
+
+asciidoctor {
+  sourceDir = file('docs')
+  sources {
+    include '*.adoc'
+  }
+  outputDir = file('output/docs')
+  attributes = [
+      'toc': 'left'
+  ]
+}
+
+
+asciidoctorPdf {
+  dependsOn asciidoctorGemsPrepare
+
+  baseDirFollowsSourceFile()
+
+  asciidoctorj {
+    requires 'rouge'
+    attributes 'build-gradle': file('build.gradle'),
+        'endpoint-url': 'http://example.org',
+        'source-highlighter': 'rouge',
+        'imagesdir': './images',
+        'toc': 'left',
+        'icons': 'font',
+        'idprefix': '',
+        'idseparator': '-',
+        'seqdiag': "/Users/pkester/Library/Python/2.7/bin/seqdiag"
+  }
+  sourceDir = file('docs')
+  sources {
+    include '*.adoc'
+  }
+  outputDir = file('output/docs')
+}

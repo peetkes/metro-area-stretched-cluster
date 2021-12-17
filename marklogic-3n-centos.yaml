@@ -3,8 +3,8 @@ version: '3.8'
 services:
   bootstrap:
     image: store/marklogicdb/marklogic-server:${mlVersionTag}
-    hostname: "mlcup_node0.local"
-    container_name: "mlcup_node0.local"
+    hostname: "${mlBootstrap}"
+    container_name: "${mlBootstrap}"
     dns_search: ""
     environment:
       - MARKLOGIC_INIT=true
@@ -31,8 +31,8 @@ services:
 
   node1:
     image: store/marklogicdb/marklogic-server:${mlVersionTag}
-    hostname: "mlcup_node1.local"
-    container_name: "mlcup_node1.local"
+    hostname: "${mlNode1}"
+    container_name: "${mlNode1}"
     dns_search: ""
     environment:
       - MARKLOGIC_INIT=true
@@ -60,10 +60,10 @@ services:
     extra_hosts:
       host.docker.internal: host-gateway
 
-  node3:
+  voter:
     image: store/marklogicdb/marklogic-server:${mlVersionTag}
-    hostname: "mlcup_node2.local"
-    container_name: "mlcup_node2.local"
+    hostname: "${mlVoter}"
+    container_name: "${mlVoter}"
     dns_search: ""
     environment:
       - MARKLOGIC_INIT=true
@@ -106,7 +106,7 @@ services:
     networks:
       - external_net
     depends_on:
-    - node3
+    - voter
     deploy:
       resources:
         limits:

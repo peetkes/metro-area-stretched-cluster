@@ -13,8 +13,8 @@ version: '3.8'
 services:
   bootstrap:
     image: store/marklogicdb/marklogic-server:${mlVersionTag}
-    hostname: "mlcup_node0.local"
-    container_name: "mlcup_node0.local"
+    hostname: "${mlBootstrap}"
+    container_name: "${mlBootstrap}"
     dns_search: ""
     environment:
       - MARKLOGIC_INIT=true
@@ -41,8 +41,8 @@ services:
 
   node1:
     image: store/marklogicdb/marklogic-server:${mlVersionTag}
-    hostname: "mlcup_node1.local"
-    container_name: "mlcup_node1.local"
+    hostname: "${mlNode1}"
+    container_name: "${mlNode1}"
     dns_search: ""
     environment:
       - MARKLOGIC_INIT=true
@@ -70,10 +70,10 @@ services:
     extra_hosts:
       host.docker.internal: host-gateway
 
-  node3:
+  voter:
     image: store/marklogicdb/marklogic-server:${mlVersionTag}
-    hostname: "mlcup_node2.local"
-    container_name: "mlcup_node2.local"
+    hostname: "${mlVoter}"
+    container_name: "${mlVoter}"
     dns_search: ""
     environment:
       - MARKLOGIC_INIT=true
@@ -100,6 +100,7 @@ services:
           memory: 6G
     extra_hosts:
       host.docker.internal: host-gateway
+      
   haproxy:
     image: haproxytech/haproxy-alpine:2.4
     #restart: always
@@ -115,7 +116,7 @@ services:
     networks:
       - external_net
     depends_on:
-    - node3
+    - voter
     deploy:
       resources:
         limits:
@@ -151,8 +152,32 @@ Prepare a .env file that docker compose can use to provide environment valiarble
 ```shell
 DOCKERPROJECT=metrotest
 mlVersionTag=10.0-8.1-centos-1.0.0-ea2
+mlBootstrap=mlcup_node0.local
+mlNode1=mlcup_node1.local
+mlVoter=mlcup_node2.local
 ```
+---
+**Attention**
 
+Make sure the names you use in .ENV for mlBootstrap and mlNode1 are the same as the names of the servers in the haproxy.cfg file and make sure all mapped ports are also present in the haproxy.cfg file.
+```cfg
+...
+frontend qconsole
+  bind :8000
+  option forwardfor except 127.0.0.1
+  http-request allow 
+  default_backend all_nodes_qconsole
+
+backend all_nodes_qconsole
+  balance roundrobin
+  option httpchk GET / HTTP/1.1\r\nHost:\ monitoring\r\nConnection:\ close
+  http-check expect string Healthy
+  cookie SessionID prefix nocache
+  server s1 mlcup_node0.local:8000 check port 7997 cookie dnode1
+  server s2 mlcup_node1.local:8000 check port 7997 cookie dnode2
+...
+```
+---
 The DOCKERPROJECT parameter will group your containers in a recognisable project name in docker. 
 
 The mlVersionTag refers to the tag of the MarkLogic docker image on dockerhub. +

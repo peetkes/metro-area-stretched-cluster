@@ -172,7 +172,7 @@ backend all_nodes_qconsole
   balance roundrobin
   option httpchk GET / HTTP/1.1\r\nHost:\ monitoring\r\nConnection:\ close
   http-check expect string Healthy
-  cookie SessionID prefix nocache
+  cookie HostId prefix nocache
   server s1 mlcup_node0.local:8000 check port 7997 cookie dnode1
   server s2 mlcup_node1.local:8000 check port 7997 cookie dnode2
 ...
@@ -205,9 +205,9 @@ The node2 and node3 use MARKLOGIC_JOIN_CLUSTER property to join the cluster once
 Run the following commands to move the voter node to a separate voter group
 
 ```shell
-./scripts/create_group.sh -p admin localhost Voter
+./scripts/create_group.sh -p admin localhost Voters
 
-./scripts/join_group.sh -p admin localhost mlcup_node2.local Voter
+./scripts/join_group.sh -p admin localhost mlcup_node2.local Voters
 ```
 
 ### Replicating the system database forests
@@ -234,6 +234,7 @@ The following command will stop the containers and removes all containers, netwo
 
 **Attention**
 
+Make sure the folder location used in your forest definition exists 
 The MarkLogic data files will be persisted in the subfolder ./data/[ml-node]
 So if you want to completely remove the project plus the data files you need to remove the subfolders inside the data folder!
 

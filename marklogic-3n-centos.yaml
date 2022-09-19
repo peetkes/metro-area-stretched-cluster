@@ -2,7 +2,7 @@ version: '3.6'
 
 services:
   bootstrap:
-    image: store/marklogicdb/marklogic-server:${mlVersionTag}
+    image: marklogicdb/marklogic-db:${mlVersionTag}
     hostname: "${mlBootstrap}"
     container_name: "${mlBootstrap}"
     dns_search: ""
@@ -12,26 +12,27 @@ services:
       - MARKLOGIC_ADMIN_PASSWORD_FILE=mldb_admin_password
       - TZ=Europe/Prague
     volumes:
-      - ./data/MarkLogic1:/export/data/forests:delegated
+      - ./data/MarkLogic1/Logs:/var/opt/MarkLogic/Logs:delegated
+      - ./data/MarkLogic1/forests:/export/data/forests:delegated
     secrets:
       - mldb_admin_password
       - mldb_admin_username
     ports:
-      - 7197:7997
-      - 7100-7102:8000-8002
+      - "${mlBootstrapHealthPortMapping}"
+      - "${mlBootstrapSystemPortMapping}"
       - "${mlBootstrapApplicationPortMapping}"
     networks:
     - external_net
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 8G
+          cpus: '1'
+          memory: 6G
     extra_hosts:
       host.docker.internal: host-gateway
 
   node1:
-    image: store/marklogicdb/marklogic-server:${mlVersionTag}
+    image: marklogicdb/marklogic-db:${mlVersionTag}
     hostname: "${mlNode1}"
     container_name: "${mlNode1}"
     dns_search: ""
@@ -42,43 +43,15 @@ services:
       - MARKLOGIC_JOIN_CLUSTER=true
       - TZ=Europe/Prague
     volumes:
-      - ./data/MarkLogic2:/export/data/forests:delegated
+      - ./data/MarkLogic2/Logs:/var/opt/MarkLogic/Logs:delegated
+      - ./data/MarkLogic2/forests:/export/data/forests:delegated
     secrets:
       - mldb_admin_password
       - mldb_admin_username
     ports:
-      - 7297:7997
-      - 7200-7202:8000-8002
+      - "${mlNode1HealthPortMapping}"
+      - "${mlNode1SystemPortMapping}"
       - "${mlNode1ApplicationPortMapping}"
-    depends_on:
-    - bootstrap
-    networks:
-    - external_net
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 8G
-    extra_hosts:
-      host.docker.internal: host-gateway
-
-  voter:
-    image: store/marklogicdb/marklogic-server:${mlVersionTag}
-    hostname: "${mlVoter}"
-    container_name: "${mlVoter}"
-    dns_search: ""
-    environment:
-      - MARKLOGIC_INIT=true
-      - MARKLOGIC_ADMIN_USERNAME_FILE=mldb_admin_username
-      - MARKLOGIC_ADMIN_PASSWORD_FILE=mldb_admin_password
-      - MARKLOGIC_JOIN_CLUSTER=true
-      - TZ=Europe/Prague
-    secrets:
-      - mldb_admin_password
-      - mldb_admin_username
-    ports:
-      - 7397:7997
-      - 7300-7302:8000-8002
     depends_on:
     - bootstrap
     networks:
@@ -91,27 +64,62 @@ services:
     extra_hosts:
       host.docker.internal: host-gateway
 
-  haproxy:
-    image: haproxytech/haproxy-alpine:2.4
-    #restart: always
-    hostname: "haproxy"
-    container_name: "haproxy"
+  voter:
+    image: marklogicdb/marklogic-db:${mlVersionTag}
+    hostname: "${mlVoter}"
+    container_name: "${mlVoter}"
+    dns_search: ""
+    environment:
+      - MARKLOGIC_INIT=true
+      - MARKLOGIC_ADMIN_USERNAME_FILE=mldb_admin_username
+      - MARKLOGIC_ADMIN_PASSWORD_FILE=mldb_admin_password
+      - MARKLOGIC_JOIN_CLUSTER=true
+      - TZ=Europe/Prague
     volumes:
-      - ./haproxy-2.4:/usr/local/etc/haproxy/
+      - ./data/MarkLogic3/Logs:/var/opt/MarkLogic/Logs:delegated
+    secrets:
+      - mldb_admin_password
+      - mldb_admin_username
     ports:
-      - 8000-8002:8000-8002
-      - "${lbApplicationPortMapping}"
-      - 8404:8404
-    expose:
-      - "8000-8010"
+      - "${mlVoterHealthPortMapping}"
+      - "${mlVoterSystemPortMapping}"
+    depends_on:
+      - bootstrap
+      - node1
     networks:
       - external_net
-    depends_on:
-    - voter
     deploy:
       resources:
         limits:
           cpus: '1'
+          memory: 4G
+    extra_hosts:
+      host.docker.internal: host-gateway
+
+  haproxy:
+    image: haproxytech/haproxy-alpine:${lbVersion}
+    #restart: always
+    hostname: "haproxy"
+    container_name: "haproxy"
+    volumes:
+      - ./haproxy-${lbVersion}:/usr/local/etc/haproxy/
+    ports:
+      - "${lbSystemPortMapping}"
+      - "${lbApplicationPortMapping}"
+      - "${lbAdminPortMapping}"
+    expose:
+      - "${lbExposeSystemPorts}"
+      - "${lbExposeApplicationPorts}"
+    networks:
+      - external_net
+    depends_on:
+      - bootstrap
+      - node1
+      - voter
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
           memory: 256M
   activemq:
     image: rmohr/activemq:5.15.9-alpine
@@ -125,7 +133,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: '0.5'
           memory: 1G
   
 secrets:
